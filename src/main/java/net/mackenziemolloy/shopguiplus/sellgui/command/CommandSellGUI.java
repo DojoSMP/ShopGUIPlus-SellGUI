@@ -1,30 +1,17 @@
 package net.mackenziemolloy.shopguiplus.sellgui.command;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.EnumMap;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Objects;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
-import java.util.logging.Logger;
-
 import com.tcoded.folialib.impl.PlatformScheduler;
 import dev.triumphteam.gui.guis.Gui;
 import dev.triumphteam.gui.guis.GuiItem;
-import net.brcdev.shopgui.ShopGuiPlusApi;
 import net.brcdev.shopgui.ShopGuiPlugin;
+import net.brcdev.shopgui.ShopGuiPlusApi;
 import net.brcdev.shopgui.economy.EconomyType;
+import net.brcdev.shopgui.event.ShopPreTransactionEvent;
 import net.brcdev.shopgui.provider.economy.EconomyProvider;
+import net.brcdev.shopgui.shop.ShopManager;
+import net.brcdev.shopgui.shop.item.ShopItem;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.mackenziemolloy.shopguiplus.sellgui.SellGUI;
 import net.mackenziemolloy.shopguiplus.sellgui.objects.ShopItemPriceValue;
 import net.mackenziemolloy.shopguiplus.sellgui.utility.*;
@@ -36,12 +23,7 @@ import net.md_5.bungee.api.chat.BaseComponent;
 import net.md_5.bungee.api.chat.HoverEvent;
 import net.md_5.bungee.api.chat.HoverEvent.Action;
 import net.md_5.bungee.api.chat.TextComponent;
-import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
-import org.bukkit.GameMode;
-import org.bukkit.Location;
-import org.bukkit.Material;
-import org.bukkit.World;
+import org.bukkit.*;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.PluginCommand;
@@ -60,8 +42,13 @@ import org.bukkit.plugin.PluginManager;
 import org.bukkit.util.StringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+
+import java.io.IOException;
+import java.util.*;
+import java.util.Map.Entry;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
+import java.util.logging.Logger;
 
 @SuppressWarnings("deprecation")
 public final class CommandSellGUI implements TabExecutor {
@@ -398,6 +385,14 @@ public final class CommandSellGUI implements TabExecutor {
                 int amount = i.getAmount();
 
                 double itemSellPrice = itemStackSellPriceCache.containsKey(singleItem) ? itemStackSellPriceCache.get(singleItem).getSellPrice() * amount : ShopGuiPlusApi.getItemStackPriceSell(player, i);
+
+                try {
+                    ShopPreTransactionEvent shopPreTransactionEvent = (ShopPreTransactionEvent) Class.forName("net.brcdev.shopgui.event.ShopPreTransactionEvent").getDeclaredConstructor(new Class[]{ShopManager.ShopAction.class, ShopItem.class, Player.class, int.class, double.class}).newInstance(new Object[]{ShopManager.ShopAction.SELL, ShopGuiPlusApi.getItemStackShopItem(i), player, amount, itemSellPrice});
+                    Bukkit.getPluginManager().callEvent(shopPreTransactionEvent);
+                    itemSellPrice = shopPreTransactionEvent.getPrice();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
 
                 totalPrice += itemSellPrice;
 

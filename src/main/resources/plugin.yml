@@ -19,5 +19,6 @@ commands:
   sellgui:
     description: "Sell Command"
     aliases:
+      - "sell"
       - "sg"
       - "sellg"
