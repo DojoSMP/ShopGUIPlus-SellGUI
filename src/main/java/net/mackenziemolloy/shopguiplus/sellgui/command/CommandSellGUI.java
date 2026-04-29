@@ -35,6 +35,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.block.ShulkerBox;
+import org.bukkit.inventory.meta.BlockStateMeta;
 import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
@@ -333,6 +335,11 @@ public final class CommandSellGUI implements TabExecutor {
         return String.format(Locale.US, "%s / %s MiB", usedMemoryMB, maxMemoryMB);
     }
 
+    private boolean isShulkerBox(ItemStack item) {
+        if (item == null) return false;
+        return item.getType().name().contains("SHULKER_BOX");
+    }
+
     private void setItemDamage(ItemStack item, int damage) {
         int minorVersion = VersionUtility.getMinorVersion();
         if (minorVersion < 13) {
@@ -373,6 +380,106 @@ public final class CommandSellGUI implements TabExecutor {
             }
 
             itemsPlacedInGui = true;
+
+            if (isShulkerBox(i)) {
+                ItemMeta shulkerMeta = i.getItemMeta();
+                if (!(shulkerMeta instanceof BlockStateMeta)) {
+                    excessItems = true;
+                    Location loc = player.getLocation().add(0.0D, 0.5D, 0.0D);
+                    Map<Integer, ItemStack> fallen = event.getPlayer().getInventory().addItem(i);
+                    scheduler.runAtLocation(loc, task -> {
+                        World world = player.getWorld();
+                        fallen.values().forEach(item -> world.dropItemNaturally(loc, item));
+                    });
+                    continue;
+                }
+                BlockStateMeta bsm = (BlockStateMeta) shulkerMeta;
+                if (!(bsm.getBlockState() instanceof ShulkerBox)) {
+                    excessItems = true;
+                    Location loc = player.getLocation().add(0.0D, 0.5D, 0.0D);
+                    Map<Integer, ItemStack> fallen = event.getPlayer().getInventory().addItem(i);
+                    scheduler.runAtLocation(loc, task -> {
+                        World world = player.getWorld();
+                        fallen.values().forEach(item -> world.dropItemNaturally(loc, item));
+                    });
+                    continue;
+                }
+                ShulkerBox shulkerBox = (ShulkerBox) bsm.getBlockState();
+                ItemStack[] contents = shulkerBox.getInventory().getContents();
+                boolean soldAnything = false;
+
+                for (int s = 0; s < contents.length; s++) {
+                    ItemStack content = contents[s];
+                    if (content == null) continue;
+                    if (isShulkerBox(content)) continue;
+
+                    ItemStack singleContent = new ItemStack(content);
+                    singleContent.setAmount(1);
+
+                    double priceCheck = itemStackSellPriceCache.containsKey(singleContent)
+                            ? itemStackSellPriceCache.get(singleContent).getSellPrice()
+                            : ShopGuiPlusApi.getItemStackPriceSell(player, content);
+                    if (priceCheck <= 0) continue;
+
+                    int amount = content.getAmount();
+                    double stackSellPrice = itemStackSellPriceCache.containsKey(singleContent)
+                            ? itemStackSellPriceCache.get(singleContent).getSellPrice() * amount
+                            : ShopGuiPlusApi.getItemStackPriceSell(player, content);
+
+                    try {
+                        ShopPreTransactionEvent shopPreTransactionEvent = (ShopPreTransactionEvent) Class.forName("net.brcdev.shopgui.event.ShopPreTransactionEvent").getDeclaredConstructor(new Class[]{ShopManager.ShopAction.class, ShopItem.class, Player.class, int.class, double.class}).newInstance(new Object[]{ShopManager.ShopAction.SELL, ShopGuiPlusApi.getItemStackShopItem(content), player, amount, stackSellPrice});
+                        Bukkit.getPluginManager().callEvent(shopPreTransactionEvent);
+                        stackSellPrice = shopPreTransactionEvent.getPrice();
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+
+                    if (stackSellPrice <= 0) continue;
+
+                    contents[s] = null;
+                    soldAnything = true;
+
+                    totalPrice += stackSellPrice;
+                    itemAmount += amount;
+
+                    EconomyType contentEconomyType = ShopHandler.getEconomyType(content);
+
+                    ItemStack cacheKey = new ItemStack(content);
+                    cacheKey.setAmount(1);
+                    itemStackSellPriceCache.putIfAbsent(cacheKey,
+                            new ShopItemPriceValue(contentEconomyType, stackSellPrice / amount));
+
+                    @SuppressWarnings("deprecation")
+                    short materialDamage = content.getDurability();
+                    Map<Short, Integer> totalSold = soldMap2.getOrDefault(cacheKey, new HashMap<>());
+                    totalSold.put(materialDamage, totalSold.getOrDefault(materialDamage, 0) + amount);
+                    soldMap2.put(cacheKey, totalSold);
+
+                    double prev = moneyMap.getOrDefault(contentEconomyType, 0.0);
+                    moneyMap.put(contentEconomyType, prev + stackSellPrice);
+                }
+
+                ItemStack boxToReturn;
+                if (soldAnything) {
+                    for (int s = 0; s < contents.length; s++) {
+                        shulkerBox.getInventory().setItem(s, contents[s]);
+                    }
+                    bsm.setBlockState(shulkerBox);
+                    boxToReturn = i.clone();
+                    boxToReturn.setItemMeta(bsm);
+                } else {
+                    boxToReturn = i;
+                }
+
+                Location boxLoc = player.getLocation().add(0.0D, 0.5D, 0.0D);
+                Map<Integer, ItemStack> boxOverflow = event.getPlayer().getInventory().addItem(boxToReturn);
+                scheduler.runAtLocation(boxLoc, task -> {
+                    World world = player.getWorld();
+                    boxOverflow.values().forEach(fallen -> world.dropItemNaturally(boxLoc, fallen));
+                });
+
+                continue;
+            }
 
             ItemStack singleItem = new ItemStack(i);
             singleItem.setAmount(1);
